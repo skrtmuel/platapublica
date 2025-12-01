@@ -3,3 +3,5 @@ pandas
 plotly
 sodapy
 openpyxl
+networkx
+pyvis
