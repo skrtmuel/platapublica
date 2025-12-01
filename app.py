@@ -13,12 +13,16 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. CARGA, LIMPIEZA Y CLASIFICACIÓN INTELIGENTE
+# 2. CARGA DE DATOS (ARREGLO DE RUTA)
 # -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    # Solo buscamos en la carpeta oficial
-    ruta = "data/contratos_putumayo.csv"
+    # En tu GitHub el archivo está suelto, así que esta es la ruta correcta:
+    ruta = "contratos_putumayo.csv"
+    
+    # Por seguridad, si no lo encuentra ahí, miramos si está en data/
+    if not os.path.exists(ruta):
+        ruta = "data/contratos_putumayo.csv"
     
     if os.path.exists(ruta):
         df = pd.read_csv(ruta)
@@ -29,7 +33,7 @@ def load_data():
         
         if 'ciudad' in df.columns:
             df['ciudad'] = df['ciudad'].astype(str).str.upper().str.strip()
-            # Normalización de nombres de ciudades
+            # Normalización
             df['ciudad'] = df['ciudad'].replace({
                 'PUERTO ASIS': 'PUERTO ASÍS',
                 'LEGUIZAMO': 'PUERTO LEGUÍZAMO',
@@ -39,57 +43,43 @@ def load_data():
         if 'nombre_entidad' in df.columns:
             df['nombre_entidad'] = df['nombre_entidad'].astype(str).str.upper().str.strip()
 
-
         # -----------------------------------------------------------------
-        # EL CEREBRO CLASIFICADOR (Versión Anti-Colados)
+        # CLASIFICADOR
         # -----------------------------------------------------------------
         def discriminar_entidad(row):
-            # Limpiamos tildes para evitar errores
             entidad = row['nombre_entidad'].replace('Á','A').replace('É','E').replace('Í','I').replace('Ó','O').replace('Ú','U')
             ciudad = row['ciudad']
             
-            # 1. FILTRO DE SEGURIDAD (ANTI-COLADOS)
-            # Si dice Nariño, Cauca, etc., lo marcamos como externo.
             if "NARIÑO" in entidad or "CAUCA" in entidad or "HUILA" in entidad or "CUNDINAMARCA" in entidad or "BOGOTA" in entidad:
                 return "⚠️ ENTIDADES EXTERNAS (POSIBLES ERRORES SECOP)", entidad
 
-            # 2. GOBERNACIÓN
             if ("GOBERNACION" in entidad or "DEPARTAMENTO DEL PUTUMAYO" in entidad) and "INDERCULTURA" not in entidad:
                 return "🚨 GOBERNACIÓN", "Gobernación del Putumayo"
             
-            # 3. ALCALDÍAS (PODER LOCAL)
             es_poder_local = ("ALCALDIA" in entidad or "MUNICIPIO" in entidad or "CONCEJO" in entidad)
-            # Excepciones que dicen municipio pero no son la alcaldía
             es_excepcion = ("PERSONERIA" in entidad or "INSTITUCION" in entidad or "CENTRO" in entidad or "EMPRESA" in entidad or "AGUAS" in entidad or "TRANSPORTE" in entidad)
 
             if es_poder_local and not es_excepcion:
-                # CASO MOCOA UNIFICADO
                 if "MOCOA" in ciudad or "MOCOA" in entidad:
                         return "🏛️ ALCALDÍAS MUNICIPALES", "Alcaldía de MOCOA (Incl. Concejo)"
-                # Resto de municipios
                 return "🏛️ ALCALDÍAS MUNICIPALES", f"Alcaldía de {ciudad}"
             
-            # 4. SALUD
             elif "HOSPITAL" in entidad or "E.S.E" in entidad or "ESE " in entidad:
                 nombre_corto = entidad.replace("EMPRESA SOCIAL DEL ESTADO", "").replace("HOSPITAL", "HOSP.").strip()
                 return "🏥 HOSPITALES / SALUD", nombre_corto
             
-            # 5. EDUCACIÓN
             elif "INSTITUCION" in entidad or "CENTRO EDUCATIVO" in entidad or "SENA" in entidad or "UNIVERSITARIA" in entidad:
                 return "🎓 EDUCACIÓN", "Colegios y Universidades"
 
-            # 6. FUERZA PÚBLICA
             elif "BATALLON" in entidad or "POLICIA" in entidad or "ARMADA" in entidad:
                 return "🛡️ FUERZA PÚBLICA", entidad
 
-            # 7. OTROS
             else:
                 return "🏢 OTRAS ENTIDADES", entidad
 
-        # Aplicamos la lógica
         df['categoria'], df['entidad_filtro'] = zip(*df.apply(discriminar_entidad, axis=1))
-        
         return df
+        
     return None
 
 df = load_data()
@@ -229,4 +219,5 @@ st.divider()
 with st.expander("🛠️ ZONA TÉCNICA (Verificación de Datos)"):
     st.write("Tabla de todas las entidades encontradas y su clasificación:")
     diag = df[['nombre_entidad', 'categoria', 'entidad_filtro']].drop_duplicates().sort_values('categoria')
+
     st.dataframe(diag, use_container_width=True)
