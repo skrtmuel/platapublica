@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 import os
 
 # -----------------------------------------------------------------------------
-# 1. CONFIGURACIÓN VISUAL MODERNA
+# 1. CONFIGURACIÓN VISUAL
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Observatorio Putumayo",
@@ -16,10 +16,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS PERSONALIZADO (ESTILO MODERNO) ---
+# CSS para Tarjetas y Estilo
 st.markdown("""
 <style>
-    /* Estilo para las tarjetas de métricas */
     .metric-card {
         background-color: #f8f9fa;
         border-left: 5px solid #FF4B4B;
@@ -28,42 +27,19 @@ st.markdown("""
         box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
         margin-bottom: 10px;
     }
-    .metric-title {
-        color: #6c757d;
-        font-size: 0.9rem;
-        font-weight: bold;
-        text-transform: uppercase;
-    }
-    .metric-value {
-        color: #212529;
-        font-size: 1.8rem;
-        font-weight: 700;
-    }
-    .metric-sub {
-        color: #198754;
-        font-size: 0.8rem;
-    }
-    /* Ajuste de pestañas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
+    .metric-title { color: #6c757d; font-size: 0.9rem; font-weight: bold; text-transform: uppercase; }
+    .metric-value { color: #212529; font-size: 1.8rem; font-weight: 700; }
+    .metric-sub { color: #198754; font-size: 0.8rem; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; border-radius: 4px 4px 0px 0px; gap: 1px; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA DE DATOS ROBUSTA
+# 2. CARGA DE DATOS
 # -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    # Estrategia de búsqueda de archivo
     rutas_posibles = ["data/contratos_putumayo.csv", "contratos_putumayo.csv"]
     ruta_encontrada = next((r for r in rutas_posibles if os.path.exists(r)), None)
     
@@ -74,6 +50,9 @@ def load_data():
         if 'valor_del_contrato' in df.columns:
             df['valor_del_contrato'] = pd.to_numeric(df['valor_del_contrato'], errors='coerce').fillna(0)
         
+        if 'fecha_de_firma' in df.columns:
+            df['fecha_de_firma'] = pd.to_datetime(df['fecha_de_firma'], errors='coerce')
+
         if 'ciudad' in df.columns:
             df['ciudad'] = df['ciudad'].astype(str).str.upper().str.strip()
             df['ciudad'] = df['ciudad'].replace({
@@ -83,7 +62,7 @@ def load_data():
         if 'nombre_entidad' in df.columns:
             df['nombre_entidad'] = df['nombre_entidad'].astype(str).str.upper().str.strip()
 
-        # CLASIFICADOR JERÁRQUICO
+        # CLASIFICADOR
         def discriminar_entidad(row):
             entidad = row['nombre_entidad'].replace('Á','A').replace('É','E').replace('Í','I').replace('Ó','O').replace('Ú','U')
             ciudad = row['ciudad']
@@ -119,7 +98,7 @@ def load_data():
 df = load_data()
 
 # -----------------------------------------------------------------------------
-# 3. FILTROS (SIDEBAR)
+# 3. FILTROS (CON LA OPCIÓN "TODAS")
 # -----------------------------------------------------------------------------
 st.sidebar.title("🎛️ Panel de Control")
 if df is not None:
@@ -129,25 +108,30 @@ if df is not None:
     
     cat_sel = st.sidebar.selectbox("1. Tipo de Entidad", cats_sort)
     
+    # Obtenemos las entidades y AGREGAMOS LA OPCIÓN "TODAS" AL PRINCIPIO
     entidades = sorted(df[df['categoria'] == cat_sel]['entidad_filtro'].unique().tolist())
-    idx = 0
-    if cat_sel == "🏛️ ALCALDÍAS MUNICIPALES":
-        idx = next((i for i, x in enumerate(entidades) if "MOCOA" in x), 0)
+    entidades.insert(0, "🌐 TODAS (Ver Conexiones)")
     
-    ent_sel = st.sidebar.selectbox("2. Entidad Específica", entidades, index=idx)
+    ent_sel = st.sidebar.selectbox("2. Entidad Específica", entidades)
     
-    df_filtrado = df[df['entidad_filtro'] == ent_sel]
+    # LÓGICA DE FILTRADO
+    if ent_sel == "🌐 TODAS (Ver Conexiones)":
+        df_filtrado = df[df['categoria'] == cat_sel]
+        modo_red = True # Activamos modo red complejo
+    else:
+        df_filtrado = df[df['entidad_filtro'] == ent_sel]
+        modo_red = False # Modo entidad única
 else:
     st.error("Error: No hay datos.")
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 4. DASHBOARD PRINCIPAL (CON TABS)
+# 4. DASHBOARD
 # -----------------------------------------------------------------------------
-st.title(f"{ent_sel}")
-st.markdown(f"**Vigilancia Ciudadana** | Categoría: {cat_sel}")
+titulo = f"{ent_sel}" if not modo_red else f"Análisis Global: {cat_sel}"
+st.title(titulo)
 
-# --- TARJETAS DE MÉTRICAS (HTML/CSS) ---
+# Métricas
 total = df_filtrado['valor_del_contrato'].sum()
 count = len(df_filtrado)
 col_mod = 'modalidad_de_contratacion'
@@ -157,33 +141,31 @@ if col_mod in df_filtrado.columns:
     pct_dedo = (dedo / count * 100) if count > 0 else 0
 
 c1, c2, c3 = st.columns(3)
-with c1:
-    st.markdown(f"""<div class="metric-card"><div class="metric-title">Presupuesto Ejecutado</div><div class="metric-value">${total/1e6:,.0f} M</div><div class="metric-sub">Millones de Pesos</div></div>""", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"""<div class="metric-card"><div class="metric-title">Total Contratos</div><div class="metric-value">{count}</div><div class="metric-sub">Firmados en el periodo</div></div>""", unsafe_allow_html=True)
-with c3:
-    color = "#198754" if pct_dedo < 40 else "#dc3545" # Verde o Rojo
-    st.markdown(f"""<div class="metric-card" style="border-left: 5px solid {color};"><div class="metric-title">Índice Contratación Directa</div><div class="metric-value" style="color:{color}">{pct_dedo:.1f}%</div><div class="metric-sub">A dedo (Sin concurso)</div></div>""", unsafe_allow_html=True)
+with c1: st.markdown(f"""<div class="metric-card"><div class="metric-title">Presupuesto</div><div class="metric-value">${total/1e6:,.0f} M</div></div>""", unsafe_allow_html=True)
+with c2: st.markdown(f"""<div class="metric-card"><div class="metric-title">Contratos</div><div class="metric-value">{count}</div></div>""", unsafe_allow_html=True)
+with c3: 
+    color = "#198754" if pct_dedo < 40 else "#dc3545"
+    st.markdown(f"""<div class="metric-card" style="border-left:5px solid {color}"><div class="metric-title">Contratación Directa</div><div class="metric-value" style="color:{color}">{pct_dedo:.0f}%</div></div>""", unsafe_allow_html=True)
 
 st.markdown("---")
 
-# --- PESTAÑAS DE NAVEGACIÓN ---
-tab1, tab2, tab3 = st.tabs(["📊 RADIOGRAFÍA", "🕸️ RED DE VÍNCULOS (PRO)", "🔎 AUDITORÍA DETALLADA"])
+# -----------------------------------------------------------------------------
+# PESTAÑAS (INCLUYENDO LA RED)
+# -----------------------------------------------------------------------------
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RADIOGRAFÍA", "📅 CRONOGRAMA", "🕸️ RED DE PODER", "🔎 AUDITORÍA"])
 
-# --- TAB 1: GRÁFICAS BÁSICAS ---
+# --- TAB 1: GRÁFICAS ---
 with tab1:
     col_izq, col_der = st.columns(2)
     with col_izq:
-        st.subheader("¿Cómo se contrató?")
+        st.subheader("Modalidad")
         if col_mod in df_filtrado.columns:
             df_pie = df_filtrado[col_mod].value_counts().reset_index()
             df_pie.columns = ['Modalidad', 'Cantidad']
             fig = px.pie(df_pie, names='Modalidad', values='Cantidad', hole=0.6, color_discrete_sequence=px.colors.qualitative.Prism)
-            fig.update_layout(showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
-            
     with col_der:
-        st.subheader("Top 10 Contratistas ($)")
+        st.subheader("Top Contratistas ($)")
         col_prov = 'proveedor_adjudicado'
         if col_prov in df_filtrado.columns:
             top = df_filtrado.groupby(col_prov)['valor_del_contrato'].sum().nlargest(10).reset_index()
@@ -191,93 +173,77 @@ with tab1:
             fig2.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig2, use_container_width=True)
 
-# --- TAB 2: ANÁLISIS DE REDES (EL NIVEL PRO) ---
+# --- TAB 2: CRONOGRAMA ---
 with tab2:
-    st.subheader("🕸️ Mapa de Poder: ¿Quién se conecta con quién?")
-    st.markdown("""
-    Este gráfico muestra la **Red de Contratación**. 
-    * **Cuadro Azul:** Es la entidad pública.
-    * **Puntos Rojos:** Son los contratistas.
-    * **Líneas:** Conexiones contractuales (Más gruesa = Más dinero).
-    * *Si ves un punto rojo conectado a varias entidades a la vez (si seleccionas 'TODOS'), es un contratista poderoso.*
-    """)
+    st.subheader("📅 Línea de Tiempo de Contratos")
+    if 'fecha_de_firma' in df_filtrado.columns and not df_filtrado.empty:
+        fig_time = px.scatter(
+            df_filtrado, x="fecha_de_firma", y="valor_del_contrato",
+            size="valor_del_contrato", color="modalidad_de_contratacion",
+            hover_name="objeto_del_contrato", size_max=60,
+            color_discrete_sequence=px.colors.qualitative.Bold
+        )
+        fig_time.update_layout(height=450, plot_bgcolor="white", yaxis=dict(gridcolor='#eee'))
+        st.plotly_chart(fig_time, use_container_width=True)
+
+# --- TAB 3: RED DE PODER (LA TELARAÑA) ---
+with tab3:
+    st.subheader("🕸️ Mapa de Conexiones")
     
-    # 1. Preparar datos para el grafo
-    # Limitamos a los Top 40 contratistas para que el grafo no explote y sea legible
-    top_contractors = df_filtrado.groupby('proveedor_adjudicado')['valor_del_contrato'].sum().nlargest(40).index.tolist()
+    mensaje = """
+    **¿Cómo leer esto?**
+    * Los **CUADROS AZULES** son las Entidades Públicas.
+    * Los **PUNTOS ROJOS** son los Contratistas.
+    * Si ves un punto rojo conectado a varios cuadros azules, ¡Bingo! Has encontrado un contratista compartido.
+    """
+    st.info(mensaje)
+    
+    # 1. Preparar datos (Limitamos para no colgar el navegador)
+    # Tomamos los 50 contratistas más grandes de la selección actual
+    top_contractors = df_filtrado.groupby('proveedor_adjudicado')['valor_del_contrato'].sum().nlargest(50).index.tolist()
     df_graph = df_filtrado[df_filtrado['proveedor_adjudicado'].isin(top_contractors)]
     
     if not df_graph.empty:
-        # Crear grafo con NetworkX
         G = nx.Graph()
         
-        # Nodo central (Entidad)
-        entidad_nombre = ent_sel
-        G.add_node(entidad_nombre, label=entidad_nombre, title="Entidad Pública", color="#00A8E8", shape="box", size=40)
-        
-        # Agregar nodos de contratistas y aristas
         for idx, row in df_graph.iterrows():
+            entidad = row['entidad_filtro'] # Puede ser Mocoa, Orito, etc.
             contratista = row['proveedor_adjudicado']
             valor = row['valor_del_contrato']
             
-            # El contratista
-            # Tooltip con info de dinero
-            info_hover = f"Contratista: {contratista}<br>Total: ${valor:,.0f}"
-            G.add_node(contratista, label=contratista[:20]+"...", title=info_hover, color="#FF4B4B", size=15)
+            # Nodo Entidad (Azul)
+            G.add_node(entidad, label=entidad, title="Entidad Pública", color="#00A8E8", shape="box", size=25)
+            # Nodo Contratista (Rojo)
+            info = f"Contratista: {contratista}\nValor: ${valor:,.0f}"
+            G.add_node(contratista, label=contratista[:15]+"...", title=info, color="#FF4B4B", shape="dot", size=15)
+            # Conexión
+            G.add_edge(entidad, contratista, color="#cccccc")
             
-            # La conexión (Arista)
-            # El grosor depende del valor (normalizado un poco)
-            peso = 1 + (valor / 100000000) # Truco matemático para el grosor
-            if peso > 10: peso = 10 # Límite de grosor
-            
-            G.add_edge(entidad_nombre, contratista, width=peso, color="#aaaaaa")
-            
-        # Visualizar con PyVis
         try:
-            net = Network(height="500px", width="100%", bgcolor="#ffffff", font_color="black")
+            # Física para que se separen
+            net = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black")
             net.from_nx(G)
+            net.repulsion(node_distance=150, spring_length=250)
             
-            # Física del grafo (para que se muevan las bolitas)
-            net.repulsion(node_distance=150, spring_length=200)
-            
-            # Guardar y leer HTML (Truco para Streamlit Cloud)
             path_tmp = "grafo.html"
             net.save_graph(path_tmp)
-            
-            # Renderizar en Streamlit
             with open(path_tmp, 'r', encoding='utf-8') as f:
                 html_string = f.read()
-            components.html(html_string, height=520, scrolling=True)
-            
+            components.html(html_string, height=620, scrolling=True)
         except Exception as e:
-            st.error(f"Error generando el grafo: {e}")
-            st.caption("Intente seleccionar una entidad con menos datos.")
+            st.error(f"Error visualizando red: {e}")
     else:
         st.warning("No hay suficientes datos para generar la red.")
 
-# --- TAB 3: AUDITORÍA (TABLA) ---
-with tab3:
-    st.subheader("🕵️ Lupa a los Contratos")
-    col_prov = 'proveedor_adjudicado'
-    
-    # Buscador interno
-    busqueda = st.text_input("Buscar en esta lista (Nombre o Objeto):", placeholder="Ej: Vías...")
-    
+# --- TAB 4: AUDITORÍA ---
+with tab4:
+    st.subheader("🕵️ Buscador")
+    busqueda = st.text_input("Buscar:", placeholder="Ej: Vías...")
     df_show = df_filtrado.copy()
     if busqueda:
         mask = df_show.astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)
         df_show = df_show[mask]
-
-    cols_ver = ['fecha_de_firma', 'proveedor_adjudicado', 'objeto_del_contrato', 'valor_del_contrato']
-    cols_existentes = [c for c in cols_ver if c in df_show.columns]
     
-    st.dataframe(
-        df_show[cols_existentes].sort_values('valor_del_contrato', ascending=False),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "valor_del_contrato": st.column_config.NumberColumn("Valor ($)", format="$%d"),
-            "fecha_de_firma": st.column_config.DateColumn("Fecha"),
-            "objeto_del_contrato": "Objeto"
-        }
-    )
+    cols_ver = ['fecha_de_firma', 'entidad_filtro', 'proveedor_adjudicado', 'objeto_del_contrato', 'valor_del_contrato']
+    st.dataframe(df_show[[c for c in cols_ver if c in df_show.columns]].sort_values('valor_del_contrato', ascending=False), 
+                 use_container_width=True, hide_index=True)
